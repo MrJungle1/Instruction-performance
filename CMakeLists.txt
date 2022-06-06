@@ -6,11 +6,7 @@ project(MegEngine LANGUAGES C CXX ASM)
 message(${PROJECT_SOURCE_DIR})
 message(${CMAKE_CURRENT_SOURCE_DIR})
 
-option(MEGPEAK_ENABLE_OPENCL "Build MegPeak with OpenCL." OFF)
-
-set(MGEPEAK_ARCH "aarch64")
-# set(MGEPEAK_ARCH "armv7")
-# set(MGEPEAK_ARCH "x86")
+set(MGEPEAK_ARCH "armv7")
 
 message(STATUS "CONFIG MGEPEAK_ARCH TO ${MGEPEAK_ARCH}")
 
@@ -30,18 +26,6 @@ else()
     message(FATAL_ERROR "Unknown MEGPEAK_ARCH ${MEGPEAK_ARCH}.")
 endif()
 
-if(MEGPEAK_ENABLE_OPENCL)
-    set(CMAKE_CXX_FLAGS " -DMEGPEAK_WITH_OPENCL=1 ${CMAKE_CXX_FLAGS}")
-
-    message(STATUS "megpeak build with opencl.")
-    add_subdirectory(opencl-stub)
-    target_include_directories(megpeak PUBLIC ${PROJECT_SOURCE_DIR}/opencl-stub/include/)
-    target_link_libraries(megpeak OpenCL)
-endif()
-
 if(UNIX)
     target_link_libraries(megpeak dl)
-endif()
-if(ANDROID)
-    target_link_libraries(megpeak log)
 endif()
