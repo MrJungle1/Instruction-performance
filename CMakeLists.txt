@@ -6,7 +6,9 @@ project(MegEngine LANGUAGES C CXX ASM)
 message(${PROJECT_SOURCE_DIR})
 message(${CMAKE_CURRENT_SOURCE_DIR})
 
-set(MGEPEAK_ARCH "armv7")
+set(MGEPEAK_ARCH "aarch64")
+#set(MGEPEAK_ARCH "armv7")
+#set(MGEPEAK_ARCH "x86")
 
 message(STATUS "CONFIG MGEPEAK_ARCH TO ${MGEPEAK_ARCH}")
 
