@@ -1,4 +1,4 @@
-# MegPeak
+# Instruction-performance
 This is a benchmark for testing instruction throughput, GFlops, latency, supports arm, x86.
 
 ## BUILD
