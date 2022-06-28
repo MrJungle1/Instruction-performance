@@ -1,4 +1,4 @@
-# throughput-latency-gflops-instructions_per_cycle
+# MegPeak
 This is a benchmark for testing instruction throughput, GFlops, latency, supports arm, x86.
 
 ## BUILD
