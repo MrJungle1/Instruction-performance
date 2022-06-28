@@ -20,10 +20,6 @@
 
 namespace megpeak {
 constexpr static uint32_t RUNS = 800000;
-// constexpr static float A[20]={1.1,1.1,1.1,1.1,1.1,
-//                               1.1,1.1,1.1,1.1,1.1,
-//                               1.1,1.1,1.1,1.1,1.1,
-//                               1.1,1.1,1.1,1.1,1.1};
 #define MEGPEAK_ATTRIBUTE_TARGET(simd) __attribute__((target(simd)))
 
 class Timer {
