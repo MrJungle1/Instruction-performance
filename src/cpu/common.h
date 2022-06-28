@@ -96,8 +96,8 @@ inline static void benchmark(std::function<int()> throughtput_func,
     timer.reset();
     runs = latency_func();
     float latency_used = timer.get_nsecs() / runs;
-    printf("%s throughput: %f ns %f GFlops latency: %f ns instructions_per_cycle: %f\n", inst,
-           throuphput_used, 1.f / throuphput_used * inst_simd, latency_used, latency_used/throuphput_used);
+    printf("%s throughput: %f ns %f GFlops latency: %f ns\n", inst,
+           throuphput_used, 1.f / throuphput_used * inst_simd, latency_used);
 
 }
 
