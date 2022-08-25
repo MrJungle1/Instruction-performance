@@ -5,135 +5,287 @@
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT ARRANTIES OR CONDITIONS OF ANY KIND, either express or
- * implied.
+ * "AS IS" BASIS, WITHOUT ARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  */
 
-#pragma once
-#include <chrono>
-#include <cassert>
-#include <algorithm>
-#include <cmath>
-#include <string>
-#include <iostream>
-#include <functional>
+#include "src/cpu/common.h"
 
-namespace megpeak {
-constexpr static uint32_t RUNS = 800000;
-#define MEGPEAK_ATTRIBUTE_TARGET(simd) __attribute__((target(simd)))
+#if MEGPEAK_AARCH64
+#include <arm_neon.h>
+#define eor(i) "eor v" #i ".16b, v" #i ".16b, v" #i ".16b\n"
 
-class Timer {
-    std::chrono::high_resolution_clock::time_point m_start;
+const float *A = (float*) malloc(20*4); 
 
-public:
-    Timer() { reset(); }
-
-    void reset() { m_start = std::chrono::high_resolution_clock::now(); }
-
-    double get_secs() const {
-        auto now = std::chrono::high_resolution_clock::now();
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(now -
-                                                                    m_start)
-                       .count() *
-               1e-9;
+#define THROUGHPUT(cb, func)                                                \
+    static int func##_throughput() {                                        \
+        asm volatile(                                                       \
+        UNROLL_CALL(20, eor)                                                \
+        "mov x0, #0\n"                                                      \
+        "1:\n"                                                              \
+        UNROLL_CALL(20, cb)                                                 \
+        "add  x0, x0, #1 \n"                                                \
+        "cmp x0, %x[RUNS] \n"                                               \
+        "blt 1b \n"                                                         \
+        :                                                                   \
+        : [RUNS] "r"(megpeak::RUNS),                                         \
+          [A]"r" (A)    \
+        : "cc", "memory","v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", \
+          "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18",    \
+          "v19", "x0", "x1");                                                     \
+        return megpeak::RUNS * 20;                                          \
     }
 
-    double get_nsecs() const { return get_secs() * 1e9; }
-
-    double get_msecs() const { return get_secs() * 1e3; }
-
-    double get_secs_reset() {
-        auto ret = get_secs();
-        reset();
-        return ret;
+#define LATENCY(cb, func)              \
+    static int func##_latency() {      \
+        asm volatile(                  \
+        "eor v0.16b, v0.16b, v0.16b\n" \
+        "mov x0, #0\n"                 \
+        "1:\n"                         \
+        UNROLL_CALL(20, cb)            \
+        "add  x0, x0, #1 \n"           \
+        "cmp x0, %x[RUNS] \n"          \
+        "blt 1b \n"                    \
+        :                              \
+        : [RUNS] "r"(megpeak::RUNS),             \
+          [A]"r" (A)    \
+        : "cc", "memory", "v0","v1", "x0", "x1");           \
+        return megpeak::RUNS * 20;     \
     }
 
-    double get_msecs_reset() { return get_secs_reset() * 1e3; }
-};
+// fmla    v0.4s, v20.4s, v24.s[2] 
 
-inline static float get_relative_diff(float lhs, float rhs) {
-    float abs_diff = std::fabs(rhs - lhs);
-    float base = std::max(std::max(std::fabs(lhs), std::fabs(rhs)), 1.0f);
-    float rel_diff = abs_diff / base;
-    return rel_diff;
+#define cb(i) "ldp     q0, q1, [x1]\n"
+THROUGHPUT(cb, ldp)
+#undef cb
+#define cb(i) "ldp     q0, q1, [x1]\n"
+LATENCY(cb, ldp)
+#undef cb
+
+#define cb(i) "ldr q" #i ", [x1], #0\n"
+THROUGHPUT(cb, ldr)
+#undef cb
+#define cb(i) "ldr q0, [x1], #0\n"
+LATENCY(cb, ldr)
+#undef cb
+
+#define cb(i) "fmla v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fmla_vv)
+#undef cb
+#define cb(i) "fmla v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, fmla_vv)
+#undef cb
+
+#define cb(i) "fmla v" #i ".4s, v" #i ".4s, v" #i ".4s[0]\n"
+THROUGHPUT(cb, fmla_vs)
+#undef cb
+#define cb(i) "fmla v0.4s, v0.4s, v0.4s[0]\n"
+LATENCY(cb, fmla_vs)
+#undef cb
+
+#define cb(i) "fadd v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fadd)
+#undef cb
+#define cb(i) "fadd v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, fadd)
+#undef cb
+
+#define cb(i) "addp v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, addp)
+#undef cb
+#define cb(i) "addp v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, addp)
+#undef cb
+
+#define cb(i) "fmul v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fmul_vv)
+#undef cb
+#define cb(i) "fmul v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, fmul_vv)
+#undef cb
+
+#define cb(i) "fmul v" #i ".4s, v" #i ".4s, v" #i ".4s[0]\n"
+THROUGHPUT(cb, fmul_vs)
+#undef cb
+#define cb(i) "fmul v0.4s, v0.4s, v0.4s[0]\n"
+LATENCY(cb, fmul_vs)
+#undef cb
+
+#define cb(i) "mul v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, mul)
+#undef cb
+#define cb(i) "mul v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, mul)
+#undef cb
+
+#define cb(i) "add v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, add)
+#undef cb
+#define cb(i) "add v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, add)
+#undef cb
+
+#define cb(i) "usubl v" #i ".4s, v" #i ".4h, v" #i ".4h\n"
+THROUGHPUT(cb, usubl)
+#undef cb
+#define cb(i) "usubl v0.4s, v0.4h, v0.4h\n"
+LATENCY(cb, usubl)
+#undef cb
+
+#define cb(i) "abs v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, abs)
+#undef cb
+#define cb(i) "abs v0.4s, v0.4s\n"
+LATENCY(cb, abs)
+#undef cb
+
+#define cb(i) "fcvtzs v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtzs)
+#undef cb
+#define cb(i) "fcvtzs v0.4s, v0.4s\n"
+LATENCY(cb, fcvtzs)
+#undef cb
+
+#define cb(i) "fcvtns v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtns)
+#undef cb
+#define cb(i) "fcvtns v0.4s, v0.4s\n"
+LATENCY(cb, fcvtns)
+#undef cb
+
+#define cb(i) "fcvtms v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtms)
+#undef cb
+#define cb(i) "fcvtms v0.4s, v0.4s\n"
+LATENCY(cb, fcvtms)
+#undef cb
+
+#define cb(i) "fcvtps v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtps)
+#undef cb
+#define cb(i) "fcvtps v0.4s, v0.4s\n"
+LATENCY(cb, fcvtps)
+#undef cb
+
+#define cb(i) "fcvtas v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtas)
+#undef cb
+#define cb(i) "fcvtas v0.4s, v0.4s\n"
+LATENCY(cb, fcvtas)
+#undef cb
+
+#define cb(i) "fcvtn v" #i ".4h, v" #i ".4s\n"
+THROUGHPUT(cb, fcvtn)
+#undef cb
+#define cb(i) "fcvtn v0.4h, v0.4s\n"
+LATENCY(cb, fcvtn)
+#undef cb
+
+#define cb(i) "fcvtl v" #i ".4s, v" #i ".4h\n"
+THROUGHPUT(cb, fcvtl)
+#undef cb
+#define cb(i) "fcvtl v0.4s, v0.4h\n"
+LATENCY(cb, fcvtl)
+#undef cb
+
+#define cb(i) "scvtf v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, scvtf)
+#undef cb
+#define cb(i) "scvtf v0.4s, v0.4s\n"
+LATENCY(cb, scvtf)
+#undef cb
+
+#define cb(i) "sqrdmulh v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, sqrdmulh)
+#undef cb
+#define cb(i) "sqrdmulh v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, sqrdmulh)
+#undef cb
+
+#define cb(i) "tbl v" #i ".8b, {v" #i ".16b}, v" #i ".8b\n"
+THROUGHPUT(cb, tbl)
+#undef cb
+#define cb(i) "tbl v0.8b, {v0.16b}, v0.8b\n"
+LATENCY(cb, tbl)
+#undef cb
+
+#define cb(i) "smlal v" #i ".4s, v" #i ".4h, v" #i ".4h\n"
+THROUGHPUT(cb, smlal)
+#undef cb
+#define cb(i) "smlal v0.4s, v0.4h, v0.4h\n"
+LATENCY(cb, smlal)
+#undef cb
+
+#define cb(i) "smull v" #i ".4s, v" #i ".4h, v" #i ".4h\n"
+THROUGHPUT(cb, smull)
+#undef cb
+#define cb(i) "smull v0.4s, v0.4h, v0.4h\n"
+LATENCY(cb, smull)
+#undef cb
+
+#define cb(i) "sadalp v" #i ".4s, v" #i ".8h\n"
+THROUGHPUT(cb, sadalp)
+#undef cb
+#define cb(i) "sadalp v0.4s, v0.8h\n"
+LATENCY(cb, sadalp)
+#undef cb
+
+#define cb(i) "mla v" #i ".4s, v" #i ".4s, v" #i ".4s\n"
+THROUGHPUT(cb, mla)
+#undef cb
+#define cb(i) "mla v0.4s, v0.4s, v0.4s\n"
+LATENCY(cb, mla)
+#undef cb
+
+#if __ARM_FEATURE_DOTPROD
+
+#define cb(i) "sdot v" #i ".4s, v" #i ".16b, v" #i ".16b\n"
+THROUGHPUT(cb, sdot)
+#undef cb
+#define cb(i) "sdot v0.4s, v0.16b, v0.16b\n"
+LATENCY(cb, sdot)
+#undef cb
+
+#endif
+
+
+void megpeak::aarch64() {
+    //! warmup
+    for (size_t i = 0; i < 100; i++) {
+        fmla_vv_throughput();
+    }
+    benchmark(ldr_throughput, ldr_latency, "ldr",1);
+    // benchmark(fmla_vv_throughput, ldp_latency, "ldp",1);
+    benchmark(fmla_vv_throughput, fmla_vv_latency, "fmla_vv", 8);
+    benchmark(fmla_vs_throughput, fmla_vs_latency, "fmla_vs", 8);
+    benchmark(mla_throughput, mla_latency, "mla", 8);
+    benchmark(fmul_vv_throughput, fmul_vv_latency, "fmul_vv");
+    benchmark(fmul_vs_throughput, fmul_vs_latency, "fmul_vs");
+    benchmark(mul_throughput, mul_latency, "mul");
+    benchmark(addp_throughput, addp_latency, "addp");
+#if __ARM_FEATURE_DOTPROD
+    benchmark(sdot_throughput, sdot_latency, "sdot", 32);
+#endif
+    benchmark(sadalp_throughput, sadalp_latency, "sadalp");
+    benchmark(add_throughput, add_latency, "add");
+    benchmark(fadd_throughput, fadd_latency, "fadd");
+    benchmark(smull_throughput, smull_latency, "smull");
+    benchmark(smlal_throughput, smlal_latency, "smlal", 8);
+    benchmark(tbl_throughput, tbl_latency, "tbl", 16);
+    benchmark(sqrdmulh_throughput, sqrdmulh_latency, "sqrdmulh");
+    benchmark(usubl_throughput, usubl_latency, "usubl");
+    benchmark(abs_throughput, abs_latency, "abs");
+    benchmark(fcvtzs_throughput, fcvtzs_latency, "fcvtzs");
+    benchmark(scvtf_throughput, scvtf_latency, "scvtf");
+    benchmark(fcvtns_throughput, fcvtns_latency, "fcvtns");
+    benchmark(fcvtms_throughput, fcvtms_latency, "fcvtms");
+    benchmark(fcvtps_throughput, fcvtps_latency, "fcvtps");
+    benchmark(fcvtas_throughput, fcvtas_latency, "fcvtas");
+    benchmark(fcvtn_throughput, fcvtn_latency, "fcvtn");
+    benchmark(fcvtl_throughput, fcvtl_latency, "fcvtl");
+
 }
-
-/**
- * latency:
- *
- *       xor reg, reg
- *       mov r0, count
- * loop:
- *       op reg, reg
- *       op reg, reg
- *       ...
- *       op reg, reg
- *       dec r0
- *       jne loop
- *
- *
- * 
- *
- *       xor reg0, reg0
- *       ....
- *       xor reg19, reg19
- *       mov r0, count
- * loop:
- *       op reg0, reg0
- *       op reg1, reg1
- *       ...
- *       op reg19, reg19
- *       dec 0r
- *       jne loop
- *
- */
-inline static void benchmark(std::function<int()> throughtput_func,
-                             std::function<int()> latency_func,
-                             const char* inst, size_t inst_simd = 4) {
-    Timer timer;
-    auto runs = throughtput_func();
-    float throuphput_used = timer.get_nsecs() / runs;
-    timer.reset();
-    runs = latency_func();
-    float latency_used = timer.get_nsecs() / runs;
-    printf("%s throughput: %f ns %f GFlops latency: %f ns\n", inst,
-           throuphput_used, 1.f / throuphput_used * inst_simd, latency_used);
-
-}
-
-#define UNROLL_RAW5(cb, v0, a...) \
-    cb(0, ##a) cb(1, ##a) cb(2, ##a) cb(3, ##a) cb(4, ##a)
-#define UNROLL_RAW10(cb, v0, a...) \
-    UNROLL_RAW5(cb, v0, ##a)       \
-    cb(5, ##a) cb(6, ##a) cb(7, ##a) cb(8, ##a) cb(9, ##a)
-#define UNROLL_RAW20(cb, v0, a...)                                          \
-    UNROLL_RAW10(cb, v0, ##a)                                               \
-    cb(10, ##a) cb(11, ##a) cb(12, ##a) cb(13, ##a) cb(14, ##a) cb(15, ##a) \
-            cb(16, ##a) cb(17, ##a) cb(18, ##a) cb(19, ##a)
-
-#define UNROLL_RAW5_START6(cb, v0, a...) \
-    cb(6, ##a) cb(7, ##a) cb(8, ##a) cb(9, ##a) cb(10, ##a)
-#define UNROLL_RAW10_START6(cb, v0, a...) \
-    UNROLL_RAW5_START6(cb, v0, ##a)       \
-    cb(11, ##a) cb(12, ##a) cb(13, ##a) cb(14, ##a) cb(15, ##a)
-#define UNROLL_RAW20_START6(cb, v0, a...)                                   \
-    UNROLL_RAW10_START6(cb, v0, ##a)                                        \
-    cb(16, ##a) cb(17, ##a) cb(18, ##a) cb(19, ##a) cb(20, ##a) cb(21, ##a) \
-            cb(22, ##a) cb(23, ##a) cb(24, ##a) cb(25, ##a)
-
-#define UNROLL_CALL0(step, cb, v...) UNROLL_RAW##step(cb, 0, ##v)
-#define UNROLL_CALL(step, cb, v...) UNROLL_CALL0(step, cb, ##v)
-//! As some arm instruction, the second/third operand must be [d0-d7], so the
-//! iteration should start from a higher number, otherwise may cause data
-//! dependence
-#define UNROLL_CALL0_START6(step, cb, v...) \
-    UNROLL_RAW##step##_START6(cb, 0, ##v)
-#define UNROLL_CALL_START6(step, cb, v...) UNROLL_CALL0_START6(step, cb, ##v)
-
-void aarch64();
-void armv7();
-void x86_avx();
-void x86_sse();
-}  // namespace megpeak
+#else
+void megpeak::aarch64() {}
+#endif
 
 // vim: syntax=cpp.doxygen
